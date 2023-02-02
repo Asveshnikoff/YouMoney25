@@ -1,12 +1,13 @@
 import telebot
 import datetime
+import time
 import sql_base as sql
 import diagram as dia
-import time
 from telebot import types
 import re
+import constant as const
 
-bot = telebot.TeleBot('5389340325:AAGB0Ddka7EbAB13iU1PWQgZjhupKF7dO4M')
+bot = telebot.TeleBot(const.token)
 
 
 # Период статистики
@@ -42,7 +43,7 @@ def stat_tipe(tipstat: str):
 # Тестовый пользователь
 def test_user(userid: int):
     if userid == 90205749:
-        userid = 12345  # 12345   185983928
+        userid = 90205749  # 12345   185983928
     else:
         pass
     return userid
@@ -62,6 +63,23 @@ def del_emoji(string):
     return emoji_pattern.sub(r'', string)
 
 
+# Разбитие списка на равные чести
+def generator_list(lst, n):
+    for i in range(0, len(lst), n):
+        yield lst[i: i + n]
+
+
+# Проверка длины списка
+def prov_dlin(i, dlin):
+    if i < 0:
+        i = 0
+    elif i > dlin:
+        i = dlin
+    else:
+        i = i
+    return i
+
+
 # Нажали старт (Основное окно)
 @bot.message_handler(commands=['start'])
 def start_message(message):
@@ -69,6 +87,7 @@ def start_message(message):
     userid = test_user(message.from_user.id)
     lastname = message.from_user.last_name
     login = message.from_user.username
+    # bot.answer_callback_query(message.chat.id, "START!!!")
     print(firstname, userid, lastname, login)
     # {'id': 90205749, 'is_bot': False, 'first_name': 'Andrew', 'username': 'ASveshnikoff', 'last_name': None,
     #  'language_code': 'en', 'can_join_groups': None, 'can_read_all_group_messages': None,
@@ -132,6 +151,7 @@ def statistika(call):
     markup.add(types.InlineKeyboardButton(text=f'Текущий месяц', callback_data=f'stat__2'))
     markup.add(types.InlineKeyboardButton(text=f'Прошлая неделя', callback_data=f'stat__3'))
     markup.add(types.InlineKeyboardButton(text=f'Текущая неделя', callback_data=f'stat__4'))
+    markup.add(types.InlineKeyboardButton(text=f'Все расходы', callback_data=f'AllRash__0'))
     markup.add(types.InlineKeyboardButton(text='🔝 Главное меню', callback_data=f'mainmenu'))
     bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.id,
                           text=f'Выбери период:', parse_mode='html', reply_markup=markup)
@@ -149,12 +169,12 @@ def stat_po_cat(call):
     explode = ()
     markup = types.InlineKeyboardMarkup()
     if not sumcat:
-        mess = 'Для отображение статистики внесите расход.'
+        mess = f'Данные по расходам за {datestat[2]} отсутствуют.\nДля отображение внесите расход.'
         markup.add(types.InlineKeyboardButton(text='Внести расход', callback_data=f'rasx'))
     else:
         for row in sumcat:
             markup.add(types.InlineKeyboardButton(text=f'{row[1]}: {row[2]} руб',
-                                                  callback_data=f'statart__{row[0]}__{row[1]}__{tipstat[1]}'))
+                                                  callback_data=f'statcat__{row[0]}__{row[1]}__{tipstat[1]}'))
             labels += (del_emoji(row[1]),)
             sizes.append(row[2])
             explode += (0.01,)
@@ -169,7 +189,7 @@ def stat_po_cat(call):
 
 
 # Вывод статистики по подкатегориям
-@bot.callback_query_handler(func=lambda call: call.data.startswith('statart__'))
+@bot.callback_query_handler(func=lambda call: call.data.startswith('statcat__'))
 def stat_po_art(call):
     catl = call.data.split("__")
     datestat = stat_tipe(catl[3])
@@ -181,8 +201,10 @@ def stat_po_art(call):
     explode = ()
     markup = types.InlineKeyboardMarkup()
     for row in art:
-        markup.add(types.InlineKeyboardButton(text=f'{row[1]}: {row[2]} руб', callback_data=f'00000000'))
-        labels += (row[1],)  # убрать эмоджи
+        markup.add(types.InlineKeyboardButton(text=f'{row[1]}: {row[2]} руб',
+                                              callback_data=f'statart__{row[0]}__{row[1]}__'
+                                                            f'{catl[3]}__0__{catl[1]}__{catl[2]}'))
+        labels += (row[1],)
         sizes.append(row[2])
         explode += (0.01,)
     print(labels)
@@ -192,6 +214,135 @@ def stat_po_art(call):
     bot.send_photo(call.message.chat.id, img)
     bot.send_message(chat_id=call.message.chat.id, text=mess, parse_mode='html',
                      reply_markup=markup)
+
+
+# Вывод перечня всех расходов
+@bot.callback_query_handler(func=lambda call: call.data.startswith('AllRash__'))
+def stat_allrash(call):
+    rashcall = call.data.split("__")
+    userid = test_user(call.message.chat.id)
+    allrash = sql.sql_allrash(userid=userid)
+    allrash1 = list(generator_list(allrash, 8))
+    i = prov_dlin(int(rashcall[1]), len(allrash1) - 1)
+    mess = f'Детализация расходов.\n' \
+           f'Выбери для редактирования.'
+    markup = types.InlineKeyboardMarkup()
+    if len(allrash1) != 1:
+        butdown = types.InlineKeyboardButton(text=f'<<<',
+                                             callback_data=f'AllRash__{i - 1}')
+        butup = types.InlineKeyboardButton(text=f'>>>',
+                                           callback_data=f'AllRash__{i + 1}')
+        markup.add(butdown, butup)
+        mess += f'\nСтраница {i + 1} из {len(allrash1)}:'
+    for row in allrash1[i]:
+        markup.add(types.InlineKeyboardButton(text=f'{row[1]} руб. от {row[2]} {row[4]}/{row[5]}',
+                                              callback_data=f'chanoneart__{row[0]}__{row[1]}__{row[2]}'))
+    markup.add(types.InlineKeyboardButton(text='🔙 Назад', callback_data=f'static'))
+    bot.send_message(chat_id=call.message.chat.id, text=mess, parse_mode='html', reply_markup=markup)
+
+
+# Вывод детализации по подкатегории одной    ['statart', '1', 'Ипотека', '1', '1']
+@bot.callback_query_handler(func=lambda call: call.data.startswith('statart__'))
+def stat_po_oneart(call):
+    artone = call.data.split("__")
+    datestat = stat_tipe(artone[3])
+    userid = test_user(call.message.chat.id)
+    oneart = sql.sql_takesumoneart_list(userid=userid, artid=artone[1], d1=str(datestat[0]), d2=str(datestat[1]))
+    oneart1 = list(generator_list(oneart, 7))
+    i = prov_dlin(int(artone[4]), len(oneart1) - 1)
+    mess = f'Детализация расходов за {datestat[2]} по подкатегории {artone[2]}.\n' \
+           f'Выбери для редактирования.'
+    markup = types.InlineKeyboardMarkup()
+    if len(oneart1) != 1:
+        butdown = types.InlineKeyboardButton(text=f'<<<',
+                                             callback_data=f'statart__{artone[1]}__{artone[2]}__{artone[3]}__{i - 1}__'
+                                                           f'{artone[5]}__{artone[6]}')
+        butup = types.InlineKeyboardButton(text=f'>>>',
+                                           callback_data=f'statart__{artone[1]}__{artone[2]}__{artone[3]}__{i + 1}__'
+                                                         f'{artone[5]}__{artone[6]}')
+        markup.add(butdown, butup)
+        mess += f'\nСтраница {i + 1} из {len(oneart1)}:'
+    for row in oneart1[i]:
+        if row[3] is None:
+            komm = ''
+        else:
+            komm = f'({row[3]})'
+        markup.add(types.InlineKeyboardButton(text=f'{row[1]} руб. от {row[2]} {komm}',
+                                              callback_data=f'chanoneart__{row[0]}__{row[1]}__{row[2]}'))
+    markup.add(
+        types.InlineKeyboardButton(text='🔙 Назад',
+                                   callback_data=f'statcat__{artone[5]}__{artone[6]}__{artone[3]}'))
+    bot.send_message(chat_id=call.message.chat.id, text=mess, parse_mode='html', reply_markup=markup)
+
+
+# Кнопки редактирование строки расхода
+@bot.callback_query_handler(func=lambda call: call.data.startswith('chanoneart__'))
+def change_oneart(call):
+    oneart = call.data.split("__")
+    print(oneart)
+    mess = f'Расход на {oneart[2]} руб. от {oneart[3]}\nКомментарий:'
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton(text=f'Изменить сумму', callback_data=f'changesumoneart__{oneart[1]}'))
+    markup.add(types.InlineKeyboardButton(text=f'Изменить комментарий', callback_data=f'changekommoneart__{oneart[1]}'))
+    markup.add(types.InlineKeyboardButton(text=f'Удалить', callback_data=f'deletesumoneart__{oneart[1]}'))
+    # markup.add(types.InlineKeyboardButton(text='🔙 Назад', callback_data=f'statart__1__🏠Ипотека__1__1'))
+    bot.send_message(chat_id=call.message.chat.id, text=mess, parse_mode='html', reply_markup=markup)
+    # нужно исправить назад
+
+
+# Кнопка удалить выбранный расход
+@bot.callback_query_handler(func=lambda call: call.data.startswith('deletesumoneart__'))
+def delete_oneart(call):
+    oneart = call.data.split("__")
+    mess = 'Расход удален!'
+    print(oneart)
+    userid = test_user(call.message.chat.id)
+    sql.sql_deloneart(userid, oneart[1])
+    bot.send_message(chat_id=call.message.chat.id, text=mess, parse_mode='html', reply_markup=None)
+
+
+# Кнопка редактировать комментарий выбранного расход    changekommoneart__
+@bot.callback_query_handler(func=lambda call: call.data.startswith('changekommoneart__'))
+def changekomm_oneart(call):
+    oneart = call.data.split("__")
+    mess = 'Введите новый комментарий расхода:'
+    datt = bot.send_message(call.message.chat.id, mess, parse_mode='html', reply_markup=None)
+    bot.register_next_step_handler(datt, sqlchangekomm_oneart, oneart)
+
+
+def sqlchangekomm_oneart(message, value):
+    art = value
+    userid = test_user(message.from_user.id)
+    kom = message.text
+    if message.content_type == 'text':
+        sql.sql_changekommoneart(oneart=art[1], userid=userid, komm=kom)
+        mess = f'Изменил комментарий на {kom}'
+        bot.send_message(message.from_user.id, mess, reply_markup=None)
+    else:
+        datt = bot.send_message(message.chat.id, 'Комментарий должен быть текстом. Повтори ввод:')
+        bot.register_next_step_handler(datt, sqlchangekomm_oneart, art)
+
+
+# Кнопка редактировать сумму выбранного расход    sql_deloneart
+@bot.callback_query_handler(func=lambda call: call.data.startswith('changesumoneart__'))
+def changesumoneart__(call):
+    oneart = call.data.split("__")
+    mess = 'Введите новую сумму расхода:'
+    datt = bot.send_message(call.message.chat.id, mess, parse_mode='html', reply_markup=None)
+    bot.register_next_step_handler(datt, sqlchangesumm_oneart, oneart)
+
+
+def sqlchangesumm_oneart(message, value):
+    art = value
+    userid = test_user(message.from_user.id)
+    summ = message.text
+    if message.content_type == 'text' and summ.isdigit() and int(summ) > 0:
+        sql.sql_changesummoneart(oneart=art[1], userid=userid, summa=summ)
+        mess = f'Изменил сумму на {summ} руб.'
+        bot.send_message(message.from_user.id, mess, reply_markup=None)
+    else:
+        datt = bot.send_message(message.chat.id, 'Сумма должена быть целым числом больше 0! Повтори ввод:')
+        bot.register_next_step_handler(datt, sqlchangesumm_oneart, art)
 
 
 # Настройки
@@ -215,7 +366,7 @@ def option(call):
     mess = f'Редактирование категорий:\n✏ - редактировать\n❌ - удалить'
     for row in cat:
         catbut = types.InlineKeyboardButton(text=row[1], callback_data='0')
-        changebut = types.InlineKeyboardButton(text='✏', callback_data=f'сust__changecat__{row[0]}__{row[1]}')
+        changebut = types.InlineKeyboardButton(text='✏', callback_data=f'сust__chancat__{row[0]}__{row[1]}')
         delbut = types.InlineKeyboardButton(text='❌', callback_data=f'сust__dlcat__{row[0]}__{row[1]}')
         markup.add(catbut, changebut, delbut)
     markup.add(types.InlineKeyboardButton(text='➕ Добавить новую', callback_data='newc'))
@@ -226,7 +377,7 @@ def option(call):
 
 
 # Редактирование подкатегорий
-@bot.callback_query_handler(func=lambda call: call.data.startswith('сust__changecat__'))
+@bot.callback_query_handler(func=lambda call: call.data.startswith('сust__chancat__'))
 def cust_change(call):
     cangecat = call.data.split("__")
     print(f'All = {cangecat}')
@@ -270,7 +421,7 @@ def rename_art_sql(message, value):
         print(mess)
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton(text='Редактировать категорию',
-                                              callback_data=f'сust__changecat__{art[4]}__{art[5]}'))
+                                              callback_data=f'сust__chancat__{art[4]}__{art[5]}'))
         markup.add(types.InlineKeyboardButton(text='🔝 Главное меню', callback_data='mainmenu'))
         bot.send_message(message.from_user.id, mess, reply_markup=markup)
     else:
@@ -286,7 +437,7 @@ def cust_del_art(call):
     markup = types.InlineKeyboardMarkup()
     da = types.InlineKeyboardButton(text='Да',
                                     callback_data=f'deleteart__{delart[2]}__{delart[3]}__{delart[4]}__{delart[5]}')
-    net = types.InlineKeyboardButton(text='Нет', callback_data=f'сust__changecat__{delart[4]}__{delart[5]}')
+    net = types.InlineKeyboardButton(text='Нет', callback_data=f'сust__chancat__{delart[4]}__{delart[5]}')
     markup.add(da, net)
     bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.id, text=mess,
                           parse_mode='html', reply_markup=markup)
@@ -301,7 +452,7 @@ def cust_delartsql(call):
     mess = f'Подкатегория {delart[2]} удалена!'
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton(text='Редактировать категорию',
-                                          callback_data=f'сust__changecat__{delart[3]}__{delart[4]}'))
+                                          callback_data=f'сust__chancat__{delart[3]}__{delart[4]}'))
     markup.add(types.InlineKeyboardButton(text='🔝 Главное меню', callback_data='mainmenu'))
     bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.id, text=mess,
                           parse_mode='html', reply_markup=markup)
@@ -451,7 +602,7 @@ def answer(call):
 def answer(call):
     art = call.data.split("__")
     print('all= ' + call.data)
-    mess = f'Напиши сумму затрат в подкатегории {art[2]}:'
+    mess = f'Напиши сумму затрат в подкатегории {art[2]}.\nЧерез пробел можешь указать комментарий.'
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
     but100 = types.InlineKeyboardButton(text='100')  # Последние введенные суммы по категории
     but200 = types.InlineKeyboardButton(text='200')
@@ -465,16 +616,28 @@ def answer(call):
 def input_rasx(message, value):
     art = value
     userid = test_user(message.from_user.id)
-    summ = message.text
-    if message.content_type == 'text' and summ.isdigit() and int(summ) > 0:
+    summkomm = message.text
+    summkomm = summkomm.split(" ", 1)
+    print(summkomm)
+    try:
+        komm = summkomm[1]
+    except IndexError:
+        komm = ''
+    if message.content_type == 'text' and summkomm[0].isdigit() and int(summkomm[0]) > 0:
+        hide_markup = types.ReplyKeyboardRemove()
+        bot.send_message(message.from_user.id, '👍', reply_markup=hide_markup)
         now = str(datetime.datetime.now())
-        sql.sql_insert_rashod(artid=art[1], userid=userid, summa=summ, datenow=now)
-        mess = f'Добавил {summ}руб. на {art[2]}.'
+        rash = sql.sql_insert_rashod(artid=art[1], userid=userid, summa=summkomm[0], datenow=now, komment=komm)
+        mess = f'Добавил {summkomm[0]}руб. на {art[2]}.\nКомментарий: {komm}'
         markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton(text='Редактировать',
+                                              callback_data=f'chanoneart__{rash[0]}__{rash[1]}__{rash[2]}'))
         markup.add(types.InlineKeyboardButton(text='🔝 Главное меню', callback_data='mainmenu'))
         bot.send_message(message.from_user.id, mess, reply_markup=markup)
     else:
-        datt = bot.send_message(message.chat.id, 'Сумма должен быть целым числом больше 0, повтори ввод:')
+        datt = bot.send_message(message.chat.id,
+                                'Сумма должена быть целым числом больше 0!'
+                                ' Через пробел можешь указать комментарий. Повтори ввод:')
         bot.register_next_step_handler(datt, input_rasx, art)
 
 
@@ -486,4 +649,3 @@ if __name__ == '__main__':
         except Exception as e:
             time.sleep(3)
             print(str(e))
-# bot.polling(none_stop=True)

@@ -88,7 +88,7 @@ def sql_takesumcat(userid: int, d1: str, d2: str):
                 left join Art A on R.ArtID = A.ArtID
                 left join Cat C on A.CatID = C.CatID
                 where  R.DateTime BETWEEN '{d1}' AND '{d2}'
-                AND R.UserId = {userid} AND C.disable = 0 AND A.disable = 0
+                AND R.UserId = {userid} AND C.disable = 0 AND A.disable = 0 AND R.disable = 0
                 group by C.CatID''')
     sumcat = sql.fetchall()
     # print(type(sumcat), '   ', sumcat)
@@ -103,12 +103,45 @@ def sql_takesumart_list(userid: int, cat: str, d1: str, d2: str):
     sql.execute(f'''select R.ArtID, A.name, sum(R.Summa) as Summa from Rashod R
                 left join Art A on R.ArtID = A.ArtID
                 left join Cat C on A.CatID = C.CatID
-                where  R.UserId = {userid} AND C.CatID = {cat} AND A.disable = 0
+                where  R.UserId = {userid} AND C.CatID = {cat} AND A.disable = 0 AND R.disable = 0
                 AND R.DateTime BETWEEN '{d1}' AND '{d2}'
                 group by R.ArtID''')
     sumart = sql.fetchall()
     db.close()
     return sumart
+
+
+# Получение статистики по одной подкатегории
+def sql_takesumoneart_list(userid: int, artid: str, d1: str, d2: str):
+    db = sqlite3.connect('server.db')
+    sql = db.cursor()
+    sql.execute(f'''select R.RashID, R.Summa, strftime('%d.%m.%Y %H:%M', R.DateTime) as DateTime, R.Komment
+                    from Rashod R
+                    left join Art A on R.ArtID = A.ArtID
+                    left join Cat C on A.CatID = C.CatID
+                    where  R.UserId = {userid} AND A.disable = 0 AND R.ArtID = {artid}  AND R.disable = 0
+                    AND R.DateTime BETWEEN '{d1}' AND '{d2}'
+                ''')
+    sumoneart = sql.fetchall()
+    db.close()
+    return sumoneart
+
+
+# Поличение списка всех расходов
+def sql_allrash(userid: int):
+    db = sqlite3.connect('server.db')
+    sql = db.cursor()
+    sql.execute(f'''select R.RashID, R.Summa, strftime('%d.%m.%Y %H:%M', R.DateTime) as DateTime,
+                                                            R.Komment, C.Name as Cat, A.Name as Art
+                    from Rashod R
+                    left join Art A on R.ArtID = A.ArtID
+                    left join Cat C on A.CatID = C.CatID
+                    where  R.UserId = {userid} AND A.disable = 0 AND R.disable = 0
+                    order by 3 DESC
+                ''')
+    allrash = sql.fetchall()
+    db.close()
+    return allrash
 
 
 # Удаление (проставление признака) категории sql
@@ -125,6 +158,33 @@ def sql_delart(art: str):
     db = sqlite3.connect('server.db')
     sql = db.cursor()
     sql.execute(f'''UPDATE art SET Disable = 1 where ArtID = {art}''')
+    db.commit()
+    db.close()
+
+
+# Удаление (проставление признака) выбранного расхода sql
+def sql_deloneart(userid: int, oneart: str):
+    db = sqlite3.connect('server.db')
+    sql = db.cursor()
+    sql.execute(f'''UPDATE rashod SET Disable = 1 where UserId = {userid} and rashID = {oneart}''')
+    db.commit()
+    db.close()
+
+
+# Редактирование суммы выбранного расхода sql
+def sql_changesummoneart(userid: int, oneart: str, summa: int):
+    db = sqlite3.connect('server.db')
+    sql = db.cursor()
+    sql.execute(f'''UPDATE rashod SET Summa = {summa} where UserId = {userid} and rashID = {oneart}''')
+    db.commit()
+    db.close()
+
+
+# Редактирование комментарий выбранного расхода sql
+def sql_changekommoneart(userid: int, oneart: str, komm: str):
+    db = sqlite3.connect('server.db')
+    sql = db.cursor()
+    sql.execute(f'''UPDATE rashod SET Komment = '{komm}' where UserId = {userid} and rashID = {oneart}''')
     db.commit()
     db.close()
 
@@ -148,10 +208,14 @@ def sql_rename_art(artid: str, nameart: str):
 
 
 # Добавление нового расхода sql
-def sql_insert_rashod(artid: str, userid: int, summa: int, datenow: str):
+def sql_insert_rashod(artid: str, userid: int, summa: int, datenow: str, komment: str):
     db = sqlite3.connect('server.db')
     sql = db.cursor()
-    sql.execute('INSERT INTO Rashod (UserID, ArtID, Summa, DateTime) VALUES (?, ?, ?, ?);',
-                (userid, artid, summa, datenow))
+    sql.execute('INSERT INTO Rashod (UserID, ArtID, Summa, DateTime, Komment) VALUES (?, ?, ?, ?, ?);',
+                (userid, artid, summa, datenow, komment))
     db.commit()
+    sql.execute(f'''select max(RashID), summa, strftime('%d.%m.%Y %H:%M', DateTime) as DateTime from Rashod
+                    WHERE userid = {userid} and ArtID = {artid}''')
+    rashid = sql.fetchone()
     db.close()
+    return rashid
